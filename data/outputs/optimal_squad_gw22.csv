@@ -1,0 +1,16 @@
+name,team,position,value,pred_points,captain,effective_points,vice_captain
+Amad Diallo,Man Utd,MID,54,16.74101422546513,True,33.48202845093026,
+Phil Foden,Man City,MID,92,16.6834398299309,,,True
+Alex Iwobi,Fulham,MID,59,16.259502547565734,,,
+Alexander Isak,Newcastle,FWD,93,15.34898862524457,,,
+Marc Guéhi,Crystal Palace,DEF,45,13.82160764194248,,,
+Martin Dúbravka,Newcastle,GK,42,11.631455851558323,,,
+Cole Palmer,Chelsea,MID,114,10.32407277113097,,,
+Antoine Semenyo,Bournemouth,MID,56,9.535626665770453,,,
+Tyrone Mings,Aston Villa,DEF,44,9.004551736772752,,,
+Chris Wood,Nott'm Forest,FWD,68,8.61084568506961,,,
+Ollie Watkins,Aston Villa,FWD,89,8.505507174247127,,,
+Pervis Estupiñán,Brighton,DEF,50,8.454563222637299,,,
+Maxence Lacroix,Crystal Palace,DEF,45,8.194604029723832,,,
+Ezri Konsa Ngoyo,Aston Villa,DEF,44,7.992547421331182,,,
+Bart Verbruggen,Brighton,GK,45,6.646834805781271,,,
