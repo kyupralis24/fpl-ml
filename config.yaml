@@ -1,0 +1,5 @@
+raw_data_file: "2023-24_merged_gw.csv"
+processed_data_file: "matches_features.csv"
+features:
+  - goal_difference
+  - points
