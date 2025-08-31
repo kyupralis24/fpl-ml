@@ -8,7 +8,7 @@ This project ingests real FPL data, engineers features, trains predictive models
 
 ---
 
-## 📂 Project Structure
+📂 Project Structure
 
 fpl-ml/
 │
