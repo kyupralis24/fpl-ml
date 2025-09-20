@@ -1,4 +1,3 @@
-Got it ✅ — here’s a comprehensive README.md for your Fantasy Premier League ML project, in full markdown script so you can paste it directly:
 
 # FPL-ML: Fantasy Premier League Machine Learning Pipeline
 
