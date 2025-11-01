@@ -23,6 +23,53 @@ def make_rollings(df):
     df[roll_cols] = df[roll_cols].fillna(0)
     return df
 
+def add_rolling_features(df_hist):
+    """Add rolling and exponential moving average features per player."""
+    # Adapt to use existing column names: element and GW
+    # Map column names if needed
+    player_col = "player_id" if "player_id" in df_hist.columns else "element"
+    gw_col = "gameweek" if "gameweek" in df_hist.columns else "GW"
+    
+    df_hist = df_hist.sort_values([player_col, gw_col])
+    
+    for window in [3, 5]:
+        df_hist[f"avg_points_last{window}"] = (
+            df_hist.groupby(player_col)["total_points"]
+            .rolling(window)
+            .mean()
+            .shift(1)
+            .reset_index(level=0, drop=True)
+        )
+        df_hist[f"avg_minutes_last{window}"] = (
+            df_hist.groupby(player_col)["minutes"]
+            .rolling(window)
+            .mean()
+            .shift(1)
+            .reset_index(level=0, drop=True)
+        )
+        df_hist[f"goals_last{window}"] = (
+            df_hist.groupby(player_col)["goals_scored"]
+            .rolling(window)
+            .sum()
+            .shift(1)
+            .reset_index(level=0, drop=True)
+        )
+        df_hist[f"std_points_last{window}"] = (
+            df_hist.groupby(player_col)["total_points"]
+            .rolling(window)
+            .std()
+            .shift(1)
+            .reset_index(level=0, drop=True)
+        )
+
+    # Exponential moving average for "form"
+    df_hist["ema_points"] = (
+        df_hist.groupby(player_col)["total_points"]
+        .transform(lambda x: x.ewm(span=3, adjust=False).mean())
+        .shift(1)
+    )
+    return df_hist
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--gw", type=int, required=True, help="Gameweek to append (e.g., 1)")
@@ -54,6 +101,11 @@ def main():
         combined = new_gw
 
     combined = make_rollings(combined)
+    combined = add_rolling_features(combined)
+    
+    # Fill missing rolling values for early weeks
+    combined = combined.fillna(0)
+    
     os.makedirs(os.path.dirname(FEATURES_PATH), exist_ok=True)
     combined.to_csv(FEATURES_PATH, index=False)
     print(f"✅ Updated features with GW{args.gw} → {FEATURES_PATH}")

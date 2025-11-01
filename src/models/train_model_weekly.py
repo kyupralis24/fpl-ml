@@ -3,8 +3,14 @@ import argparse
 import os
 import pandas as pd
 import numpy as np
+from sklearn.ensemble import RandomForestRegressor, StackingRegressor
+from sklearn.neighbors import KNeighborsRegressor
+from sklearn.linear_model import Ridge
+from sklearn.model_selection import train_test_split
+import joblib
 
 MODEL_PATH = "models/LightGBM_model.pkl"
+STACKED_MODEL_PATH = "models/stacked_model.pkl"
 
 def choose_model():
     try:
@@ -35,11 +41,43 @@ def train_and_save(df_train, feature_cols, y_col):
     y = df_train[y_col].astype(float)
 
     model.fit(X, y)
-    import joblib, os
     os.makedirs(os.path.dirname(MODEL_PATH), exist_ok=True)
     joblib.dump(model, MODEL_PATH)
     print(f"✅ Model trained on {len(df_train)} rows and saved to {MODEL_PATH}")
     return model
+
+def train_stacked_model(df_train, feature_cols, y_col):
+    """Train a stacking ensemble model with LGBM, RF, KNN as base models and Ridge as meta-learner."""
+    try:
+        from lightgbm import LGBMRegressor
+    except ImportError:
+        raise ImportError("lightgbm is required for stacked model. Install with: pip install lightgbm")
+    
+    X = df_train[feature_cols]
+    y = df_train[y_col].astype(float)
+    
+    # Split for validation (optional, but good for evaluation)
+    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.1, random_state=42)
+    
+    base_models = [
+        ("lgbm", LGBMRegressor(n_estimators=200, learning_rate=0.05, random_state=42)),
+        ("rf", RandomForestRegressor(n_estimators=300, max_depth=10, random_state=42, n_jobs=-1)),
+        ("knn", KNeighborsRegressor(n_neighbors=5))
+    ]
+    
+    stacked = StackingRegressor(estimators=base_models, final_estimator=Ridge(random_state=42))
+    stacked.fit(X_train, y_train)
+    
+    os.makedirs(os.path.dirname(STACKED_MODEL_PATH), exist_ok=True)
+    joblib.dump(stacked, STACKED_MODEL_PATH)
+    print(f"✅ Stacked model trained on {len(X_train)} rows and saved to {STACKED_MODEL_PATH}")
+    print(f"   Test set size: {len(X_test)} rows")
+    
+    # Optional: print test score
+    test_score = stacked.score(X_test, y_test)
+    print(f"   Test R² score: {test_score:.4f}")
+    
+    return stacked
 
 def main():
     parser = argparse.ArgumentParser()
@@ -66,7 +104,9 @@ def main():
 
     print(f"Using {len(feature_cols)} numeric features.")
 
+    # Train both single model (legacy) and stacked model
     _ = train_and_save(train_df, feature_cols, y_col="total_points")
+    _ = train_stacked_model(train_df, feature_cols, y_col="total_points")
 
 if __name__ == "__main__":
     main()

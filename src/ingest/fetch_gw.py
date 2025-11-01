@@ -138,5 +138,13 @@ def main():
     df.to_csv(out_path, index=False)
     print(f"✅ Saved GW{gw} player stats to {out_path}")
 
+    # After you save the full GW data
+    actual = df[["element", "name", "team", "position_id", "total_points"]].copy()
+    actual.rename(columns={"element": "player_id"}, inplace=True)
+    actual_path = f"data/raw/gw{gw}_actual_points.csv"
+    os.makedirs(os.path.dirname(actual_path), exist_ok=True)
+    actual.to_csv(actual_path, index=False)
+    print(f"✅ Saved actual GW{gw} points for evaluation to {actual_path}")
+
 if __name__ == "__main__":
     main()

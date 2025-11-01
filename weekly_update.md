@@ -13,17 +13,23 @@ Replace `2` / `3` with the actual gameweek numbers you are working with.
 ### Steps (run one after another):
 
 ```bash
-# 1) Fetch real results of previous GW (example: GW2)
+# 1️⃣ Fetch real data for GW2
 python src/ingest/fetch_gw.py --gw 2
 
-# 2) Update features with those results
+# 2️⃣ Update enhanced features (rolling averages, EMA)
 python src/features/update_features_weekly.py --gw 2
 
-# 3) Retrain model using data up to that GW (train on GW < 3)
+# 3️⃣ Retrain stacked model using data up to GW2
 python src/models/train_model_weekly.py --target_gw 3
 
-# 4) Predict performance for the upcoming GW (GW3)
+# 4️⃣ Predict GW3 player points
 python src/models/predict_next_gw.py --target_gw 3
 
-# 5) Optimize and select best squad for the upcoming GW
+# 5️⃣ Optimize and select best squad for GW3
 python src/optimization/select_squad.py --pred data/predictions/predictions_gw3.csv
+
+# 6️⃣ After GW3 completes: evaluate model accuracy
+python src/evaluate/evaluate_model_weekly.py --gw 3
+
+# 7️⃣ Visualize long-term model performance
+python src/visualize/model_performance.py

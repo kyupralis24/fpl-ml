@@ -37,7 +37,8 @@ def main():
 
     preds = model.predict(inf_df[feature_cols])
 
-    out = inf_df[["name","team","position","value"]].copy()
+    out = inf_df[["element","name","team","position","value"]].copy()
+    out = out.rename(columns={"element": "player_id"})  # Rename for consistency with actual points file
     out["pred_points"] = preds
     out = out.sort_values("pred_points", ascending=False).reset_index(drop=True)
 
