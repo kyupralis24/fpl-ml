@@ -15,6 +15,7 @@ fpl-ml/
 │   ├── raw/                     # Raw FPL data
 │   ├── processed/               # Processed data & features
 │   ├── predictions/             # Weekly model predictions
+│   ├── evaluation/              # Model evaluation results
 │   └── squads/                  # Saved optimal squads
 │
 ├── src/                         # Source code
@@ -25,6 +26,8 @@ fpl-ml/
 │   ├── models/                  # Model training & prediction
 │   │   ├── train_model_weekly.py
 │   │   └── predict_next_gw.py
+│   ├── evaluate/                # Model evaluation
+│   │   └── evaluate_model_weekly.py
 │   └── optimization/            # Squad optimization
 │       └── select_squad.py
 │
@@ -43,6 +46,7 @@ Each gameweek follows the same steps:
 3. **Train Model** – Retrain ML model using data up to the current GW  
 4. **Predict Next GW** – Predict player scores for the next GW  
 5. **Optimize Squad** – Select the best 15-player squad for the upcoming GW  
+6. **Evaluate Model** – Compare predictions with actual results to track model performance  
 
 ---
 
@@ -67,9 +71,13 @@ python src/models/predict_next_gw.py --target_gw 3
 # 5) Optimize/select squad for GW3
 python src/optimization/select_squad.py --pred data/predictions/predictions_gw3.csv
 
+# 6) (After GW3 is complete) Evaluate model performance
+python src/evaluate/evaluate_model_weekly.py --gw 3
+
 👉 After this, you will have:
 	•	Predictions file: data/predictions/predictions_gw3.csv
 	•	Optimal Squad file: data/predictions/optimal_squad.csv (or saved per GW if extended)
+	•	Evaluation results: data/evaluation/eval_gw3.csv (after GW3 completes)
 
 ⸻
 
@@ -78,12 +86,14 @@ python src/optimization/select_squad.py --pred data/predictions/predictions_gw3.
 	•	Player past performance (form, minutes, goals, assists, clean sheets)
 	•	Team strength indicators
 	•	Opponent difficulty
-	•	Rolling averages and exponential moving averages
+	•	Rolling averages (3, 5 gameweek windows) and exponential moving averages
+	•	Standard deviation of points for volatility assessment
 	•	Models:
-	•	Gradient Boosted Trees (XGBoost/LightGBM)
-	•	Linear models for baselines
+	•	Stacking Ensemble (LightGBM + Random Forest + KNN with Ridge meta-learner)
+	•	Single model fallback (LightGBM or Random Forest)
 	•	Weekly retraining for adaptive learning
 	•	Target Variable: Expected FPL points in next GW
+	•	Evaluation Metrics: MAE (Mean Absolute Error) and R² Score
 
 ⸻
 
@@ -99,6 +109,8 @@ python src/optimization/select_squad.py --pred data/predictions/predictions_gw3.
 📊 Outputs
 	•	Predicted scores per player per GW (data/predictions/predictions_gwX.csv)
 	•	Optimal squad for the upcoming GW (data/predictions/optimal_squad.csv)
+	•	Model evaluation results (data/evaluation/eval_gwX.csv) - compares predictions vs actual points
+	•	Trained models (models/LightGBM_model.pkl, models/stacked_model.pkl)
 
 Example (GW3 optimal squad):
 
@@ -127,11 +139,12 @@ pip install -r requirements.txt
 ✅ Weekly Checklist
 
 At the end of every GW:
-	1.	Fetch the last GW results
-	2.	Update features
-	3.	Retrain the model (target = next GW)
-	4.	Predict next GW player scores
-	5.	Run squad optimization
+	1.	Fetch the last GW results (`fetch_gw.py`)
+	2.	Update features (`update_features_weekly.py`)
+	3.	Retrain the model (target = next GW) (`train_model_weekly.py`)
+	4.	Predict next GW player scores (`predict_next_gw.py`)
+	5.	Run squad optimization (`select_squad.py`)
+	6.	(After the GW completes) Evaluate model performance (`evaluate_model_weekly.py`)
 
 ⸻
 
