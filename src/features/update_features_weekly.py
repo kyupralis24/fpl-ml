@@ -73,6 +73,11 @@ def add_rolling_features(df_hist):
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--gw", type=int, required=True, help="Gameweek to append (e.g., 1)")
+    parser.add_argument(
+        "--reset",
+        action="store_true",
+        help="Ignore existing features.csv and rebuild from this GW file only",
+    )
     args = parser.parse_args()
 
     gw_file = os.path.join(RAW_DIR, f"gw{args.gw}_player_stats.csv")
@@ -87,7 +92,7 @@ def main():
             new_gw[c] = pd.to_numeric(new_gw[c], errors="coerce")
 
     # Load existing features (if any), append, drop duplicates per (element, GW)
-    if os.path.exists(FEATURES_PATH):
+    if os.path.exists(FEATURES_PATH) and not args.reset:
         base = pd.read_csv(FEATURES_PATH)
         # harmonize key columns if needed
         needed = set(new_gw.columns)

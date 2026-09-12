@@ -57,6 +57,11 @@ def main():
     # Flatten live stats
     rows = []
     elements = live.get("elements", [])
+    if not elements:
+        raise ValueError(
+            f"No live player stats for GW{gw}. That gameweek has not started "
+            "or the FPL live endpoint returned an empty elements list."
+        )
     for el in elements:
         element_id = el.get("id")
         stats = el.get("stats", {}) or {}
