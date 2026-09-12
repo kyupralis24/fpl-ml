@@ -2,8 +2,12 @@ import pandas as pd
 import matplotlib.pyplot as plt
 import glob
 import os
+import argparse
 
 def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--no-show", action="store_true", help="Save the chart without opening a window")
+    args = parser.parse_args()
     eval_dir = "data/evaluation"
     if not os.path.exists(eval_dir):
         print("❌ No evaluation directory found. Run evaluate_model_weekly.py first.")
@@ -55,7 +59,8 @@ def main():
     # Save and show
     os.makedirs("data/plots", exist_ok=True)
     plt.savefig("data/plots/model_performance_trend.png")
-    plt.show()
+    if not args.no_show:
+        plt.show()
 
     print("\n✅ Saved performance plot to data/plots/model_performance_trend.png")
 

@@ -1,54 +1,60 @@
-# src/models/predict_next_gw.py
+"""Create deadline-safe predictions for the target gameweek."""
 import argparse
 import os
-import pandas as pd
-import numpy as np
 import joblib
+import numpy as np
+import pandas as pd
+import requests
 
 FEATURES_PATH = "data/processed/features.csv"
-MODEL_PATH = "models/LightGBM_model.pkl"
+MODEL_PATH = "models/next_gw_model.pkl"
 PRED_DIR = "data/predictions"
+API_BASE = "https://fantasy.premierleague.com/api"
+
+
+def target_fixture_features(target_gw):
+    fixtures = pd.DataFrame(requests.get(f"{API_BASE}/fixtures/?event={target_gw}", timeout=20).json())
+    rows = []
+    for team_id in range(1, 21):
+        fs = fixtures[(fixtures.team_h == team_id) | (fixtures.team_a == team_id)] if not fixtures.empty else fixtures
+        homes = fs[fs.team_h == team_id] if not fs.empty else fs
+        difficulty = [r.team_h_difficulty if r.team_h == team_id else r.team_a_difficulty for _, r in fs.iterrows()]
+        rows.append({"team_id": team_id, "target_fixture_count": len(fs),
+                     "target_fixture_home_count": len(homes),
+                     "target_fixture_difficulty": np.mean(difficulty) if difficulty else 0.0})
+    return pd.DataFrame(rows)
+
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--target_gw", type=int, required=False, help="GW to predict (e.g., 2)")
+    parser.add_argument("--target_gw", type=int, help="GW to predict; defaults to next completed GW")
+    parser.add_argument("--offline", action="store_true", help="Use a saved raw fixture snapshot if present")
     args = parser.parse_args()
-
     df = pd.read_csv(FEATURES_PATH)
-    current_max = int(df["GW"].max())
-    target_gw = args.target_gw if args.target_gw else current_max + 1
-
-    if not os.path.exists(MODEL_PATH):
-        raise FileNotFoundError("Model not found. Train it first with train_model_weekly.py")
-
-    model = joblib.load(MODEL_PATH)
-
-    # Use the latest known row per player (typically GW target_gw-1)
-    latest_gw = target_gw - 1
-    inf_df = df[df["GW"] == latest_gw].copy()
-    if inf_df.empty:
-        # fallback: use each player's last available GW
-        inf_df = df.sort_values("GW").groupby("element").tail(1)
-
-    # Numeric features consistent with training
-    num_cols = inf_df.select_dtypes(include=[np.number]).columns.tolist()
-    drop_cols = {"total_points","GW","team_h_score","team_a_score","fixture_id","opponent_team","element","team_id","position_id"}
-    feature_cols = [c for c in num_cols if c not in drop_cols]
-
-    preds = model.predict(inf_df[feature_cols])
-
-    out = inf_df[["element","name","team","position","value"]].copy()
-    out = out.rename(columns={"element": "player_id"})  # Rename for consistency with actual points file
-    out["pred_points"] = preds
-    out = out.sort_values("pred_points", ascending=False).reset_index(drop=True)
-
+    target_gw = args.target_gw or int(df.GW.max()) + 1
+    artifact = joblib.load(MODEL_PATH)
+    if not isinstance(artifact, dict):
+        raise ValueError("Old model artifact found. Re-run train_model_weekly.py.")
+    latest = df[df.GW == target_gw - 1].copy()
+    if latest.empty:
+        latest = df.sort_values("GW").groupby("element").tail(1).copy()
+    snapshot = f"data/raw/current/gw{target_gw}_fixtures.csv"
+    if args.offline and os.path.exists(snapshot):
+        fixture = pd.read_csv(snapshot).rename(columns={c: f"target_{c}" for c in ["fixture_count", "fixture_home_count", "fixture_difficulty"]})
+        fixture = fixture.rename(columns={"target_team_id": "team_id"})
+    else:
+        fixture = target_fixture_features(target_gw)
+    latest = latest.drop(columns=[c for c in latest if c.startswith("target_fixture_")], errors="ignore")
+    latest = latest.merge(fixture, on="team_id", how="left")
+    cols = artifact["feature_columns"]
+    X = latest.reindex(columns=cols, fill_value=0.0).replace([np.inf, -np.inf], np.nan).fillna(0.0)
+    latest["pred_points"] = artifact["model"].predict(X).clip(min=0)
+    out = latest[["element", "name", "team", "position", "value", "pred_points"]].rename(columns={"element": "player_id"})
     os.makedirs(PRED_DIR, exist_ok=True)
-    out_path = os.path.join(PRED_DIR, f"predictions_gw{target_gw}.csv")
-    out.to_csv(out_path, index=False)
+    path = f"{PRED_DIR}/predictions_gw{target_gw}.csv"
+    out.sort_values("pred_points", ascending=False).to_csv(path, index=False)
+    print(f"✅ Saved {len(out)} deadline-safe predictions to {path}")
 
-    print(f"Current last GW in features: {current_max}")
-    print(out.head(15))
-    print(f"✅ Predictions for GW{target_gw} saved to {out_path}")
 
 if __name__ == "__main__":
     main()

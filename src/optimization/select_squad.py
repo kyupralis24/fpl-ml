@@ -65,11 +65,12 @@ def main():
 
     # Decision variables
     player_vars = pulp.LpVariable.dicts("player", df.index, cat="Binary")
+    starter_vars = pulp.LpVariable.dicts("starter", df.index, cat="Binary")
     captain_vars = pulp.LpVariable.dicts("captain", df.index, cat="Binary")
 
-    # Objective: maximize points + captain extra (x1 more = total 2x)
+    # Score only the starting XI; the captain receives one additional score.
     prob += pulp.lpSum(
-        player_vars[i] * df.loc[i, "pred_points"]
+        starter_vars[i] * df.loc[i, "pred_points"]
         + captain_vars[i] * df.loc[i, "pred_points"]
         for i in df.index
     )
@@ -88,12 +89,22 @@ def main():
     # Exactly 15 players
     prob += pulp.lpSum(player_vars[i] for i in df.index) == 15
 
+    # Valid FPL starting XI: 1 GK, 3--5 DEF, 2--5 MID, and 1--3 FWD.
+    prob += pulp.lpSum(starter_vars[i] for i in df.index) == 11
+    starter_limits = {"GK": (1, 1), "DEF": (3, 5), "MID": (2, 5), "FWD": (1, 3)}
+    for pos, (minimum, maximum) in starter_limits.items():
+        starters_at_position = pulp.lpSum(starter_vars[i] for i in df.index if df.loc[i, "position"] == pos)
+        prob += starters_at_position >= minimum
+        prob += starters_at_position <= maximum
+
     # Exactly 1 captain
     prob += pulp.lpSum(captain_vars[i] for i in df.index) == 1
 
     # Captain must be selected
     for i in df.index:
+        prob += starter_vars[i] <= player_vars[i]
         prob += captain_vars[i] <= player_vars[i]
+        prob += captain_vars[i] <= starter_vars[i]
 
     # Solve
     status = prob.solve(pulp.PULP_CBC_CMD(msg=True))
@@ -105,6 +116,7 @@ def main():
     # Collect solution
     chosen = df[["name", "team", "position", "value", "pred_points"]].copy()
     chosen["selected"] = [player_vars[i].value() for i in df.index]
+    chosen["starter"] = [starter_vars[i].value() for i in df.index]
     chosen["captain"] = [captain_vars[i].value() for i in df.index]
 
     squad = chosen[chosen["selected"] == 1].sort_values("pred_points", ascending=False)
@@ -115,10 +127,10 @@ def main():
 
     # Pretty output
     print(f"\n📊 Optimal Squad for GW{gw}:\n")
-    print(squad[["name", "team", "position", "value", "pred_points", "selected", "captain"]])
+    print(squad[["name", "team", "position", "value", "pred_points", "starter", "captain"]])
 
     total_cost = round(squad["value"].sum(), 2)
-    total_points = round(squad["pred_points"].sum() + squad.loc[squad["captain"] == 1, "pred_points"].sum(), 2)
+    total_points = round(squad.loc[squad["starter"] == 1, "pred_points"].sum() + squad.loc[squad["captain"] == 1, "pred_points"].sum(), 2)
 
     print("\n💰 Total Cost: ", total_cost)
     print("⭐ Total Predicted Points (with captaincy): ", total_points)

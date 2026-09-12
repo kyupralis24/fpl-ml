@@ -1,120 +1,68 @@
-# src/features/update_features_weekly.py
+"""Build leakage-free player form features and next-gameweek labels."""
 import argparse
 import os
-import pandas as pd
 import numpy as np
+import pandas as pd
 
 RAW_DIR = "data/raw/current"
 FEATURES_PATH = "data/processed/features.csv"
+ROLL_COLS = ["total_points", "minutes", "goals_scored", "assists", "clean_sheets", "bps"]
+TARGET_FIXTURE_COLS = ["fixture_count", "fixture_home_count", "fixture_difficulty"]
 
-ROLL_COLS = ["total_points","minutes","goals_scored","assists","clean_sheets","bps"]
 
-def make_rollings(df):
-    # sort by GW and compute rolling means on PRIOR weeks (shift(1))
-    df = df.sort_values(["element","GW"])
+def prior_rolling(df, column, window, aggregation="mean"):
+    """Return a per-player rolling value using only earlier gameweeks."""
+    return df.groupby("element")[column].transform(
+        lambda s: getattr(s.shift(1).rolling(window, min_periods=1), aggregation)()
+    )
+
+
+def add_features(df):
+    df = df.sort_values(["element", "GW"]).copy()
     for col in ROLL_COLS:
-        df[f"roll3_{col}"] = (
-            df.groupby("element")[col]
-              .apply(lambda s: s.shift(1).rolling(3, min_periods=1).mean())
-              .reset_index(level=0, drop=True)
+        df[f"roll3_{col}"] = prior_rolling(df, col, 3)
+    for window in (3, 5):
+        df[f"avg_points_last{window}"] = prior_rolling(df, "total_points", window)
+        df[f"avg_minutes_last{window}"] = prior_rolling(df, "minutes", window)
+        df[f"goals_last{window}"] = prior_rolling(df, "goals_scored", window, "sum")
+        df[f"std_points_last{window}"] = df.groupby("element")["total_points"].transform(
+            lambda s: s.shift(1).rolling(window, min_periods=2).std()
         )
-    # Fill NaNs for early weeks
-    roll_cols = [f"roll3_{c}" for c in ROLL_COLS]
-    df[roll_cols] = df[roll_cols].fillna(0)
+    df["ema_points"] = df.groupby("element")["total_points"].transform(
+        lambda s: s.shift(1).ewm(span=3, adjust=False).mean()
+    )
+    # A GW-t snapshot predicts aggregate FPL points in GW t+1.
+    next_gw = df.groupby("element")["GW"].shift(-1)
+    df["next_total_points"] = df.groupby("element")["total_points"].shift(-1)
+    df.loc[next_gw.ne(df["GW"] + 1), "next_total_points"] = np.nan
+    # These schedule fields are taken from the target GW, not the completed GW.
+    for col in TARGET_FIXTURE_COLS:
+        df[f"target_{col}"] = df.groupby("element")[col].shift(-1) if col in df else 0.0
+    generated = [c for c in df if c.startswith(("roll", "avg_", "goals_last", "std_", "ema_"))]
+    df[generated] = df[generated].fillna(0.0)
     return df
 
-def add_rolling_features(df_hist):
-    """Add rolling and exponential moving average features per player."""
-    # Adapt to use existing column names: element and GW
-    # Map column names if needed
-    player_col = "player_id" if "player_id" in df_hist.columns else "element"
-    gw_col = "gameweek" if "gameweek" in df_hist.columns else "GW"
-    
-    df_hist = df_hist.sort_values([player_col, gw_col])
-    
-    for window in [3, 5]:
-        df_hist[f"avg_points_last{window}"] = (
-            df_hist.groupby(player_col)["total_points"]
-            .rolling(window)
-            .mean()
-            .shift(1)
-            .reset_index(level=0, drop=True)
-        )
-        df_hist[f"avg_minutes_last{window}"] = (
-            df_hist.groupby(player_col)["minutes"]
-            .rolling(window)
-            .mean()
-            .shift(1)
-            .reset_index(level=0, drop=True)
-        )
-        df_hist[f"goals_last{window}"] = (
-            df_hist.groupby(player_col)["goals_scored"]
-            .rolling(window)
-            .sum()
-            .shift(1)
-            .reset_index(level=0, drop=True)
-        )
-        df_hist[f"std_points_last{window}"] = (
-            df_hist.groupby(player_col)["total_points"]
-            .rolling(window)
-            .std()
-            .shift(1)
-            .reset_index(level=0, drop=True)
-        )
-
-    # Exponential moving average for "form"
-    df_hist["ema_points"] = (
-        df_hist.groupby(player_col)["total_points"]
-        .transform(lambda x: x.ewm(span=3, adjust=False).mean())
-        .shift(1)
-    )
-    return df_hist
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--gw", type=int, required=True, help="Gameweek to append (e.g., 1)")
-    parser.add_argument(
-        "--reset",
-        action="store_true",
-        help="Ignore existing features.csv and rebuild from this GW file only",
-    )
+    parser.add_argument("--gw", type=int, required=True, help="Gameweek just fetched")
+    parser.add_argument("--reset", action="store_true", help="Rebuild from raw GW CSVs")
     args = parser.parse_args()
-
-    gw_file = os.path.join(RAW_DIR, f"gw{args.gw}_player_stats.csv")
-    if not os.path.exists(gw_file):
-        raise FileNotFoundError(f"Missing {gw_file}. Run fetch_gw.py first.")
-
-    new_gw = pd.read_csv(gw_file)
-
-    # Minimal type safety
-    for c in ["GW","element","value","minutes","total_points"]:
-        if c in new_gw.columns:
-            new_gw[c] = pd.to_numeric(new_gw[c], errors="coerce")
-
-    # Load existing features (if any), append, drop duplicates per (element, GW)
-    if os.path.exists(FEATURES_PATH) and not args.reset:
-        base = pd.read_csv(FEATURES_PATH)
-        # harmonize key columns if needed
-        needed = set(new_gw.columns)
-        for col in needed - set(base.columns):
-            base[col] = np.nan
-        for col in set(base.columns) - set(new_gw.columns):
-            new_gw[col] = np.nan
-        combined = pd.concat([base[base.columns], new_gw[base.columns]], ignore_index=True)
-        combined = combined.drop_duplicates(subset=["element","GW"], keep="last")
-    else:
-        combined = new_gw
-
-    combined = make_rollings(combined)
-    combined = add_rolling_features(combined)
-    
-    # Fill missing rolling values for early weeks
-    combined = combined.fillna(0)
-    
+    files = sorted(
+        (f for f in os.listdir(RAW_DIR) if f.startswith("gw") and f.endswith("_player_stats.csv")),
+        key=lambda f: int(f.split("_")[0][2:]),
+    )
+    if not files:
+        raise FileNotFoundError(f"No player-stat files found in {RAW_DIR}. Run fetch_gw.py first.")
+    frames = [pd.read_csv(os.path.join(RAW_DIR, f)) for f in files]
+    combined = pd.concat(frames, ignore_index=True).drop_duplicates(["element", "GW"], keep="last")
+    numeric = combined.select_dtypes(include=[np.number]).columns
+    combined[numeric] = combined[numeric].fillna(0)
+    features = add_features(combined)
     os.makedirs(os.path.dirname(FEATURES_PATH), exist_ok=True)
-    combined.to_csv(FEATURES_PATH, index=False)
-    print(f"✅ Updated features with GW{args.gw} → {FEATURES_PATH}")
-    print(f"Rows: {len(combined)}, Cols: {len(combined.columns)}")
+    features.to_csv(FEATURES_PATH, index=False)
+    print(f"✅ Rebuilt {FEATURES_PATH}: {len(features)} rows, {features['next_total_points'].notna().sum()} next-GW labels")
+
 
 if __name__ == "__main__":
     main()

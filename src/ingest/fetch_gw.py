@@ -54,6 +54,32 @@ def main():
     players_min["team_name"] = players_min["team_id"].map(team_name_map)
     players_min["team"] = players_min["team_id"].map(team_short_map)
 
+    # Fixture information is known before the deadline.  Persist a small,
+    # score-free schedule snapshot so it can be used as a *next-GW* feature.
+    # This also handles double and blank gameweeks without relying on the live
+    # endpoint's ``explain`` payload.
+    fixture_features = []
+    for team_id in teams["id"]:
+        team_fixtures = (
+            fixtures_df[(fixtures_df["team_h"] == team_id) | (fixtures_df["team_a"] == team_id)]
+            if not fixtures_df.empty else fixtures_df
+        )
+        home = team_fixtures[team_fixtures["team_h"] == team_id] if not team_fixtures.empty else team_fixtures
+        difficulties = [
+            row["team_h_difficulty"] if row["team_h"] == team_id else row["team_a_difficulty"]
+            for _, row in team_fixtures.iterrows()
+        ]
+        fixture_features.append({
+            "GW": gw,
+            "team_id": team_id,
+            "fixture_count": len(team_fixtures),
+            "fixture_home_count": len(home),
+            "fixture_difficulty": sum(difficulties) / len(difficulties) if difficulties else 0.0,
+        })
+    schedule = pd.DataFrame(fixture_features)
+    schedule_path = os.path.join(RAW_DIR, f"gw{gw}_fixtures.csv")
+    schedule.to_csv(schedule_path, index=False)
+
     # Flatten live stats
     rows = []
     elements = live.get("elements", [])
@@ -65,36 +91,6 @@ def main():
     for el in elements:
         element_id = el.get("id")
         stats = el.get("stats", {}) or {}
-        explain = el.get("explain", []) or []
-
-        # Defaults
-        was_home = None
-        opponent_team = None
-        fixture_id = None
-        team_h_score = None
-        team_a_score = None
-        kickoff_time = None
-
-        # If exactly one fixture, we can enrich with home/away/opponent/scores
-        if len(explain) == 1:
-            fixture_id = explain[0].get("fixture")
-            was_home = explain[0].get("was_home")
-            if fixtures_df.shape[0] > 0 and fixture_id in set(fixtures_df["id"].tolist()):
-                fx = fixtures_df.loc[fixtures_df["id"] == fixture_id].iloc[0]
-                team_h = fx["team_h"]
-                team_a = fx["team_a"]
-                team_h_score = fx.get("team_h_score")
-                team_a_score = fx.get("team_a_score")
-                kickoff_time = fx.get("kickoff_time")
-                # Find player's team id
-                p_row = players_min.loc[players_min["element"] == element_id]
-                if not p_row.empty:
-                    p_team = int(p_row.iloc[0]["team_id"])
-                    if was_home is True:
-                        opponent_team = int(team_a) if p_team == int(team_h) else int(team_h)
-                    elif was_home is False:
-                        opponent_team = int(team_h) if p_team == int(team_a) else int(team_a)
-
         row = {
             "element": element_id,
             "GW": gw,
@@ -112,12 +108,6 @@ def main():
             "penalties_saved": stats.get("penalties_saved"),
             "penalties_missed": stats.get("penalties_missed"),
             "total_points": stats.get("total_points"),
-            "was_home": was_home,
-            "opponent_team": opponent_team,
-            "fixture_id": fixture_id,
-            "team_h_score": team_h_score,
-            "team_a_score": team_a_score,
-            "kickoff_time": kickoff_time,
         }
         rows.append(row)
 
@@ -128,12 +118,13 @@ def main():
 
     # Rename price to 'value' for compatibility with your pipeline
     df = df.rename(columns={"now_cost":"value", "web_name":"name"})
+    df = df.merge(schedule, on=["GW", "team_id"], how="left")
     # Keep nice order
     keep_cols = [
         "name","position","team","element","team_id","position_id","GW","value",
         "minutes","goals_scored","assists","clean_sheets","goals_conceded","saves",
         "bps","bonus","yellow_cards","red_cards","penalties_saved","penalties_missed",
-        "total_points","was_home","opponent_team","fixture_id","team_h_score","team_a_score","kickoff_time",
+        "total_points","fixture_count","fixture_home_count","fixture_difficulty",
         "strength_overall_home","strength_overall_away","strength_attack_home","strength_attack_away",
         "strength_defence_home","strength_defence_away"
     ]
@@ -142,6 +133,7 @@ def main():
     out_path = os.path.join(RAW_DIR, f"gw{gw}_player_stats.csv")
     df.to_csv(out_path, index=False)
     print(f"✅ Saved GW{gw} player stats to {out_path}")
+    print(f"✅ Saved GW{gw} fixture snapshot to {schedule_path}")
 
     # After you save the full GW data
     actual = df[["element", "name", "team", "position_id", "total_points"]].copy()

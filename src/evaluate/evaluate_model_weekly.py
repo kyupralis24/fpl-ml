@@ -19,10 +19,10 @@ def main():
     pred = pd.read_csv(pred_path)
     actual = pd.read_csv(actual_path)
 
-    # Merge on 'name' and 'team'
+    # Element IDs are stable; names and team abbreviations can change.
     merged = pred.merge(
-        actual[["name", "team", "total_points"]],
-        on=["name", "team"],
+        actual[["player_id", "total_points"]],
+        on="player_id",
         how="inner",
         suffixes=("_pred", "_actual")
     )
@@ -33,11 +33,13 @@ def main():
     # Compute metrics
     mae = mean_absolute_error(merged["total_points"], merged["pred_points"])
     r2 = r2_score(merged["total_points"], merged["pred_points"])
+    rank_corr = merged["total_points"].corr(merged["pred_points"], method="spearman")
 
     print(f"\n📊 Evaluation Results for GW{gw}:")
     print(f" - Mean Absolute Error (MAE): {mae:.3f}")
     print(f" - R² Score: {r2:.3f}")
     print(f" - Players compared: {len(merged)}")
+    print(f" - Spearman rank correlation: {rank_corr:.3f}")
 
     # Save merged data for record-keeping
     os.makedirs("data/evaluation", exist_ok=True)

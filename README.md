@@ -1,161 +1,100 @@
+# FPL-ML
 
-# FPL-ML: Fantasy Premier League Machine Learning Pipeline
+FPL-ML predicts each player's points for the next Fantasy Premier League gameweek and builds a legal 15-player squad, starting XI, and captain recommendation.
 
-A machine learning and optimization pipeline for **Fantasy Premier League (FPL)** that predicts weekly player performance and recommends the **optimal squad** for each gameweek.
+The pipeline is deliberately **deadline-safe**: a row containing information through GW *t* is trained against points in GW *t + 1*. Goals, minutes, bonus, and other outcomes from the gameweek being predicted are never model inputs.
 
-This project ingests real FPL data, engineers features, trains predictive models, and selects squads based on expected performance — automating the weekly decision-making process.
+## What the pipeline does
 
----
+1. Fetches completed-GW player points and a schedule snapshot from the official FPL API.
+2. Rebuilds per-player lagged form: rolling points/minutes/goals, volatility, and an EMA.
+3. Creates a next-GW target (`next_total_points`) and joins target-GW fixture count, home fixtures, and FPL fixture difficulty.
+4. Trains LightGBM (or a Random Forest fallback) on labelled historical snapshots.
+5. Fetches the upcoming GW's fixture context and produces non-negative player point predictions.
+6. Optimizes a £100m, max-three-per-team squad with a valid starting XI and captain.
+7. Evaluates completed predictions using MAE, R², and rank correlation.
 
-📂 Project Structure
-
-fpl-ml/
-│
-├── data/                        # Data storage
-│   ├── raw/                     # Raw FPL data
-│   ├── processed/               # Processed data & features
-│   ├── predictions/             # Weekly model predictions
-│   ├── evaluation/              # Model evaluation results
-│   └── squads/                  # Saved optimal squads
-│
-├── src/                         # Source code
-│   ├── ingest/                  # Data ingestion scripts
-│   │   └── fetch_gw.py
-│   ├── features/                # Feature engineering
-│   │   └── update_features_weekly.py
-│   ├── models/                  # Model training & prediction
-│   │   ├── train_model_weekly.py
-│   │   └── predict_next_gw.py
-│   ├── evaluate/                # Model evaluation
-│   │   └── evaluate_model_weekly.py
-│   └── optimization/            # Squad optimization
-│       └── select_squad.py
-│
-├── notebooks/                   # Exploratory analysis
-├── requirements.txt             # Python dependencies
-└── README.md                    # Project documentation
-
----
-
-## ⚙️ Pipeline Workflow
-
-Each gameweek follows the same steps:
-
-1. **Ingest Data** – Fetch the real FPL results of the previous GW  
-2. **Update Features** – Update the dataset with the new results  
-3. **Train Model** – Retrain ML model using data up to the current GW  
-4. **Predict Next GW** – Predict player scores for the next GW  
-5. **Optimize Squad** – Select the best 15-player squad for the upcoming GW  
-6. **Evaluate Model** – Compare predictions with actual results to track model performance  
-
----
-
-## 🚀 Weekly Workflow Example (Gameweek 3)
-
-Run these commands one after another to produce the **GW3 optimal squad**.  
-(Replace `2`/`3` with your real gameweek numbers.)
+## Installation
 
 ```bash
-# 1) Fetch GW2 real results
-python src/ingest/fetch_gw.py --gw 2
-
-# 2) Update features using GW2
-python src/features/update_features_weekly.py --gw 2
-
-# 3) Retrain model using data up to GW2 (train on GW < 3)
-python src/models/train_model_weekly.py --target_gw 3
-
-# 4) Predict GW3
-python src/models/predict_next_gw.py --target_gw 3
-
-# 5) Optimize/select squad for GW3
-python src/optimization/select_squad.py --pred data/predictions/predictions_gw3.csv
-
-# 6) (After GW3 is complete) Evaluate model performance
-python src/evaluate/evaluate_model_weekly.py --gw 3
-
-👉 After this, you will have:
-	•	Predictions file: data/predictions/predictions_gw3.csv
-	•	Optimal Squad file: data/predictions/optimal_squad.csv (or saved per GW if extended)
-	•	Evaluation results: data/evaluation/eval_gw3.csv (after GW3 completes)
-
-⸻
-
-🧠 Machine Learning Details
-	•	Features Engineered:
-	•	Player past performance (form, minutes, goals, assists, clean sheets)
-	•	Team strength indicators
-	•	Opponent difficulty
-	•	Rolling averages (3, 5 gameweek windows) and exponential moving averages
-	•	Standard deviation of points for volatility assessment
-	•	Models:
-	•	Stacking Ensemble (LightGBM + Random Forest + KNN with Ridge meta-learner)
-	•	Single model fallback (LightGBM or Random Forest)
-	•	Weekly retraining for adaptive learning
-	•	Target Variable: Expected FPL points in next GW
-	•	Evaluation Metrics: MAE (Mean Absolute Error) and R² Score
-
-⸻
-
-🏆 Optimization (Squad Selection)
-	•	Constraints:
-	•	15 players (2 GKs, 5 DEF, 5 MID, 3 FWD)
-	•	Max 3 players per real team
-	•	Budget cap (100.0 FPL budget)
-	•	Method: Integer Linear Programming (ILP) to maximize total predicted points.
-
-⸻
-
-📊 Outputs
-	•	Predicted scores per player per GW (data/predictions/predictions_gwX.csv)
-	•	Optimal squad for the upcoming GW (data/predictions/optimal_squad.csv)
-	•	Model evaluation results (data/evaluation/eval_gwX.csv) - compares predictions vs actual points
-	•	Trained models (models/LightGBM_model.pkl, models/stacked_model.pkl)
-
-Example (GW3 optimal squad):
-
-Position	Player	Team	Predicted Points
-GK	Player A	TOT	4.3
-DEF	Player B	MCI	6.1
-DEF	Player C	CHE	5.4
-…	…	…	…
-FWD	Player O	ARS	7.8
-
-
-⸻
-
-🛠️ Installation
-
-# Clone repo
-git clone https://github.com/kyupralis24/fpl-ml.git
-cd fpl-ml
-
-# Install dependencies
 pip install -r requirements.txt
+```
 
+## Weekly workflow
 
-⸻
+After a GW is complete, the normal workflow is one command:
 
-✅ Weekly Checklist
+```bash
+python src/run_weekly.py
+```
 
-At the end of every GW:
-	1.	Fetch the last GW results (`fetch_gw.py`)
-	2.	Update features (`update_features_weekly.py`)
-	3.	Retrain the model (target = next GW) (`train_model_weekly.py`)
-	4.	Predict next GW player scores (`predict_next_gw.py`)
-	5.	Run squad optimization (`select_squad.py`)
-	6.	(After the GW completes) Evaluate model performance (`evaluate_model_weekly.py`)
+It detects the latest finished FPL GW, evaluates that GW if a prediction exists, then fetches data, rebuilds features, trains, predicts, and selects the next-GW squad, XI, and captain.
 
-⸻
+To choose the completed GW explicitly:
 
-📌 Future Improvements
-	•	Save optimal squads per GW automatically (optimal_squad_gwX.csv)
-	•	Add transfer logic across weeks
-	•	Explore deep learning models for prediction
-	•	Incorporate expected goals (xG/xA) data
+```bash
+python src/run_weekly.py --completed-gw 3
+```
 
-⸻
+Use `--validate` to also run the chronological backtest or `--no-optimize` to produce predictions without a squad recommendation.
 
-👨‍💻 Author
+The individual commands below remain available for debugging or a partial rerun. The example uses GW3 as the completed week and creates recommendations for GW4.
 
-Project maintained by Viom Kapur.
+```bash
+# 1. Save GW3 results and its schedule snapshot.
+python src/ingest/fetch_gw.py --gw 3
+
+# 2. Rebuild features from every raw GW file.
+python src/features/update_features_weekly.py --gw 3
+
+# 3. Train only on rows whose GW-(t+1) points are known.
+python src/models/train_model_weekly.py --target_gw 4
+
+# 4. Predict GW4. This requests upcoming GW4 fixture context from FPL.
+python src/models/predict_next_gw.py --target_gw 4
+
+# 5. Select a 15-player squad, a valid XI, and a captain.
+python src/optimization/select_squad.py --pred data/predictions/predictions_gw4.csv
+```
+
+This produces:
+
+- `data/raw/current/gw3_player_stats.csv` and `gw3_fixtures.csv`
+- `data/processed/features.csv`
+- `models/next_gw_model.pkl`
+- `data/predictions/predictions_gw4.csv`
+- `data/predictions/optimal_squad_gw4.csv`
+
+After GW4 completes, evaluate the prediction made for it with one command:
+
+```bash
+python src/evaluate_weekly.py
+```
+
+It fetches official results, calculates the evaluation metrics, and refreshes the performance chart. Use `--gw 4` to choose a GW explicitly. Then repeat the main workflow to prepare GW5. At least two completed consecutive gameweeks are required before a next-GW training label exists.
+
+## Validation
+
+Use a chronological backtest regularly; it retrains only on information that would have been available at each historical deadline.
+
+```bash
+python src/evaluate/walk_forward_validate.py --start_gw 4
+python src/visualize/model_performance.py
+```
+
+`walk_forward_metrics.csv` contains MAE, RMSE, and Spearman rank correlation per gameweek. Rank correlation is particularly useful because FPL decisions depend on ordering players, not just matching every individual score.
+
+## Project layout
+
+```text
+data/raw/current/       completed-GW player stats and fixture snapshots
+data/processed/         leakage-safe training dataset
+data/predictions/       player predictions and optimized squads
+data/evaluation/        per-GW joins and walk-forward metrics
+models/                 deployed next-GW model artifact
+src/                    ingestion, features, models, evaluation, optimization
+```
+
+## Current scope
+
+The optimizer handles squad composition, budget, team limits, starting formation, and captaincy. It does not yet account for an existing squad, free transfers, hits, price changes, bench order, vice captain, or chips. Those are the next major planning upgrades.
